@@ -1,35 +1,43 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
+# 使用注意事项：
 
-# _Sample project_
+1. 如果要修改**配置参数**时，将`sdkconfig`删除，将修改内容写入到`sdkconfig.defaults`中，进行清除和重新编译。
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+2. 修改配置后，respeaker插入电脑需要删除设备
 
-This is the simplest buildable example. The example is used by command `idf.py create-project`
-that copies the project to user specified path and set it's name. For more information follow the [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project)
+   ![image-20260811102116570](image-20260811102116570.png)
+
+3. 使用48k,32bit时，需要修改...\managed_components\espressif__tinyusb\src\portable\synopsys\dwc2\dcd_dwc2.c中的内容：
+
+```c
+TU_ATTR_ALWAYS_INLINE static inline uint16_t calc_device_grxfsiz(uint16_t largest_ep_size, uint8_t ep_count) {
+  return 13 + 1 + ((largest_ep_size / 4) + 1) + 2 * ep_count; //修改
+}
+```
 
 
 
-## How to use example
-We encourage the users to use the example as a template for the new projects.
-A recommended way is to follow the instructions on a [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project).
+```c
+static void dfifo_device_init(uint8_t rhport) {
+  const dwc2_controller_t* dwc2_controller = &_dwc2_controller[rhport];
+  dwc2_regs_t* dwc2 = DWC2_REG(rhport);
+  dwc2->grxfsiz = calc_device_grxfsiz(CFG_TUD_ENDPOINT0_SIZE, dwc2_controller->ep_count);
 
-## Example folder contents
+  // Scatter/Gather DMA mode is not yet supported. Buffer DMA only need 1 words per endpoint direction
+  const bool is_dma = dma_device_enabled(dwc2);
+  _dcd_data.dfifo_top = dwc2_controller->ep_fifo_size/4;
+  if (is_dma) {
+    _dcd_data.dfifo_top -= 2 * dwc2_controller->ep_count;
+  }
+  dwc2->gdfifocfg = (_dcd_data.dfifo_top << GDFIFOCFG_EPINFOBASE_SHIFT) | _dcd_data.dfifo_top;
+  dwc2->gahbcfg |= GAHBCFG_TX_FIFO_EPMTY_LVL; //添加
 
-The project **sample_project** contains one source file in C language [main.c](main/main.c). The file is located in folder [main](main).
-
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt`
-files that provide set of directives and instructions describing the project's source files and targets
-(executable, library, or both). 
-
-Below is short explanation of remaining files in the project folder.
+  // Allocate FIFO for EP0 IN
+  dfifo_alloc(rhport, 0x80, CFG_TUD_ENDPOINT0_SIZE);
+}
 
 ```
-├── CMakeLists.txt
-├── main
-│   ├── CMakeLists.txt
-│   └── main.c
-└── README.md                  This is the file you are currently reading
-```
-Additionally, the sample project contains Makefile and component.mk files, used for the legacy Make based build system. 
-They are not used or needed when building with CMake and idf.py.
+
+
+
+
+
